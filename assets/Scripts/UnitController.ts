@@ -1,4 +1,5 @@
 import { _decorator, Component, Node, EventTouch, Vec3, tween, Tween, Label, UITransform, UIOpacity, Graphics, Color, instantiate, Prefab, Animation } from 'cc';
+import { SoundManager } from './SoundManager';
 const { ccclass, property } = _decorator;
 
 @ccclass('UnitController')
@@ -159,6 +160,7 @@ export class UnitController extends Component {
             this.scheduleOnce(() => {
                 this.spawnBlast(this.randomPointInTerritory());
                 this.shake(this.shakeIntensity, 0.15);
+                if (SoundManager.instance) SoundManager.instance.playExplosion();
             }, i * interval);
         }
 
@@ -340,10 +342,19 @@ export class UnitController extends Component {
         labelNode.setScale(new Vec3(1, 1, 1));
 
         let value = { power: 12 };
+        let lastShown = 12;   // последнее показанное целое число
         tween(value)
             .to(0.8, { power: 24 }, {
                 onUpdate: () => {
-                    this.armyPowerLabel.string = Math.round(value.power).toString();
+                    const current = Math.round(value.power);
+
+                    // число сменилось — обновляем текст и играем звук повышения
+                    if (current !== lastShown) {
+                        lastShown = current;
+                        if (SoundManager.instance) SoundManager.instance.playPowerTick();
+                    }
+
+                    this.armyPowerLabel.string = current.toString();
                     const pulse = 1 + (value.power - Math.floor(value.power)) * 0.25;
                     labelNode.setScale(new Vec3(pulse, pulse, 1));
                 }

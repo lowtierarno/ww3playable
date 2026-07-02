@@ -28,6 +28,10 @@ export class EndcardManager extends Component {
     zoomDuration: number = 1.6;
     @property({ tooltip: 'Не отдалять за край карты (если есть фон — выключи)' })
     keepMapCovered: boolean = true;
+    @property({ tooltip: 'Запас покрытия: карта заходит за края с излишком (1 = впритык, 1.1 = +10%)' })
+    coverPadding: number = 1.05;
+    @property({ tooltip: 'Куда сместить карту при отъезде (X, Y в мировых px). + вправо/вверх' })
+    focusOffset: Vec3 = new Vec3(0, 0, 0);
     @property({ tooltip: 'Ссылка на стор (fallback)' })
     storeUrl: string = '';
 
@@ -83,15 +87,20 @@ export class EndcardManager extends Component {
                     const visible = view.getVisibleSize();
                     const mapW = ui.width * map.worldScale.x;
                     const mapH = ui.height * map.worldScale.y;
-                    const minS = startS * Math.max(visible.width / mapW, visible.height / mapH);
+                    // запас покрытия — карта заходит за края с излишком
+                    const pad = this.coverPadding > 0 ? this.coverPadding : 1;
+                    const minS = startS * Math.max(visible.width / mapW, visible.height / mapH) * pad;
                     if (endS < minS) endS = minS;
                 }
             }
 
+            // центр карты + заданное смещение кадра
             const c = map.worldPosition.clone();
             const wp0 = wr.worldPosition.clone();
             const dx = c.x - wp0.x;
             const dy = c.y - wp0.y;
+
+            const off = this.focusOffset;
 
             const d = { k: 0 };
             tween(d)
@@ -100,8 +109,11 @@ export class EndcardManager extends Component {
                     onUpdate: () => {
                         const cs = startS + (endS - startS) * d.k;
                         const f = cs / startS;
+                        // смещение кадра тоже въезжает плавно (по k)
+                        const ox = off.x * d.k;
+                        const oy = off.y * d.k;
                         wr.setScale(cs, cs, 1);
-                        wr.setWorldPosition(c.x - dx * f, c.y - dy * f, wp0.z);
+                        wr.setWorldPosition(c.x - dx * f - ox, c.y - dy * f - oy, wp0.z);
                     }
                 })
                 .call(onDone).start();

@@ -1,4 +1,5 @@
 import { _decorator, Component, Node, Vec3, tween, Tween, instantiate, Prefab, UITransform, UIOpacity, Graphics, Color, Animation } from 'cc';
+import { SoundManager } from './SoundManager';
 const { ccclass, property } = _decorator;
 
 @ccclass('UpgradeManager')
@@ -28,6 +29,9 @@ export class UpgradeManager extends Component {
     enemyTerritoryRed: Node = null;
     @property({ type: Node, tooltip: 'Синяя версия (показать после удара)' })
     enemyTerritoryBlue: Node = null;
+
+    @property({ type: [Node], tooltip: 'Вражеские юниты на территории — исчезнут при ударе' })
+    enemyUnits: Node[] = [];
 
     // ----- Эффекты -----
     @property({ type: Prefab, tooltip: 'Префаб взрыва (необязательно)' })
@@ -88,6 +92,9 @@ export class UpgradeManager extends Component {
         this._bombed = false;
         this.fighterJet.active = true;
 
+        // звук взлёта самолёта
+        if (SoundManager.instance) SoundManager.instance.playJetTakeoff();
+
         // берём компонент Animation: указанный или с самого самолёта
         const anim = this.jetAnimation || this.fighterJet.getComponent(Animation);
         if (!anim) {
@@ -122,14 +129,31 @@ export class UpgradeManager extends Component {
     }
 
     bombTerritory() {
+        // вражеские юниты территории исчезают по ходу удара
+        this.dismissEnemyUnits();
+
         for (let i = 0; i < this.explosionCount; i++) {
             this.scheduleOnce(() => {
                 this.spawnExplosion(this.randomPointInTerritory());
                 this.shake(this.shakeIntensity, 0.18);
+                if (SoundManager.instance) SoundManager.instance.playExplosion();
             }, i * this.explosionInterval);
         }
         const total = this.explosionCount * this.explosionInterval + 0.35;
         this.scheduleOnce(() => this.captureTerritory(), total);
+    }
+
+    /** Вражеские юниты по очереди схлопываются */
+    private dismissEnemyUnits() {
+        for (let i = 0; i < this.enemyUnits.length; i++) {
+            const u = this.enemyUnits[i];
+            if (!u) continue;
+            tween(u)
+                .delay(i * 0.12)
+                .to(0.3, { scale: new Vec3(0, 0, 0) }, { easing: 'backIn' })
+                .call(() => { u.active = false; })
+                .start();
+        }
     }
 
     randomPointInTerritory(): Vec3 {
