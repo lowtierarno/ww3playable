@@ -34,6 +34,10 @@ export class RegionSelect extends Component {
 
     private _busy: boolean = false;
 
+    // исходные масштабы регионов: твины считаются от них, а не от (1,1,1),
+    // иначе первая же пульсация затирает авторский масштаб хит-зоны
+    private _baseScale: Map<Node, Vec3> = new Map();
+
     start() {
         // подготавливаем оверлей — прозрачный и не ловит клики, пока не нужен
         if (this.fadeOverlay) {
@@ -57,6 +61,8 @@ export class RegionSelect extends Component {
     private setupRegion(region: Node, sceneName: string) {
         if (!region) return;
 
+        this._baseScale.set(region, region.scale.clone());
+
         // наведение — подсветка и лёгкое увеличение
         region.on(Node.EventType.MOUSE_ENTER, () => this.onHover(region, true), this);
         region.on(Node.EventType.MOUSE_LEAVE, () => this.onHover(region, false), this);
@@ -73,12 +79,12 @@ export class RegionSelect extends Component {
 
         if (hovered) {
             tween(region)
-                .to(0.15, { scale: new Vec3(1.06, 1.06, 1) }, { easing: 'sineOut' })
+                .to(0.15, { scale: this.scaled(region, 1.06) }, { easing: 'sineOut' })
                 .start();
         } else {
             // вернуть нормальный масштаб и снова запустить пульс-подсказку
             tween(region)
-                .to(0.15, { scale: new Vec3(1, 1, 1) }, { easing: 'sineOut' })
+                .to(0.15, { scale: this.scaled(region, 1) }, { easing: 'sineOut' })
                 .call(() => { if (this.pulseHint && !this._busy) this.startPulse(region); })
                 .start();
         }
@@ -93,8 +99,8 @@ export class RegionSelect extends Component {
     // ----- Пульсация-подсказка -----
     private startPulse(region: Node) {
         if (!region) return;
-        const up = new Vec3(1.03, 1.03, 1);
-        const norm = new Vec3(1, 1, 1);
+        const up = this.scaled(region, 1.03);
+        const norm = this.scaled(region, 1);
         tween(region)
             .repeatForever(
                 tween(region)
@@ -115,8 +121,8 @@ export class RegionSelect extends Component {
 
         // короткий «отклик»: выбранный регион чуть подпрыгивает, затем переход
         tween(region)
-            .to(0.12, { scale: new Vec3(1.12, 1.12, 1) }, { easing: 'backOut' })
-            .to(0.1, { scale: new Vec3(1.05, 1.05, 1) })
+            .to(0.12, { scale: this.scaled(region, 1.12) }, { easing: 'backOut' })
+            .to(0.1, { scale: this.scaled(region, 1.05) })
             .call(() => this.goToScene(sceneName))
             .start();
     }
@@ -136,6 +142,11 @@ export class RegionSelect extends Component {
             // без оверлея — грузим сразу
             director.loadScene(sceneName);
         }
+    }
+
+    private scaled(region: Node, factor: number): Vec3 {
+        const b = this._baseScale.get(region) ?? region.scale.clone();
+        return new Vec3(b.x * factor, b.y * factor, b.z);
     }
 
     private getOpacity(node: Node): UIOpacity {

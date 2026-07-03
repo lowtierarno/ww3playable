@@ -8,10 +8,21 @@ import {
     ResolutionPolicy,
     UITransform,
 } from 'cc';
+import { CoverScreen } from './CoverScreen';
 
 const { ccclass, property } = _decorator;
 
-
+/**
+ * Переключает дизайн-разрешение и наборы UI под текущую ориентацию.
+ *
+ * Портрет:   FIXED_WIDTH  — видимая ширина всегда = portraitWidth.
+ * Ландшафт:  FIXED_HEIGHT — видимая высота всегда = landscapeHeight.
+ *
+ * HUD-панели нарисованы под фиксированную ширину (1080 / 2944 px),
+ * поэтому их масштаб подгоняется под ФАКТИЧЕСКУЮ видимую ширину экрана —
+ * так они никогда не обрезаются по краям и не оставляют щелей
+ * на любом соотношении сторон.
+ */
 @ccclass('AdaptiveLayout')
 export class AdaptiveLayout extends Component {
 
@@ -63,6 +74,8 @@ export class AdaptiveLayout extends Component {
     private apply() {
 
         const size = screen.windowSize;
+        if (size.width <= 0 || size.height <= 0) return;
+
         const portrait = size.height >= size.width;
 
         if (portrait) {
@@ -88,6 +101,22 @@ export class AdaptiveLayout extends Component {
         if (this.landscapeUI)
             this.landscapeUI.active = !portrait;
 
+        // HUD подгоняется по фактической видимой ширине
+        const visibleWidth = view.getVisibleSize().width;
+        if (portrait) {
+            this.fitToWidth(this.portraitTop, visibleWidth);
+            this.fitToWidth(this.portraitBottom, visibleWidth);
+        } else {
+            this.fitToWidth(this.landscapeUI, visibleWidth);
+        }
+
+        // карта пересчитывается ПОСЛЕ смены дизайн-разрешения:
+        // порядок событий resize у отдельных компонентов не гарантирован
+        const covers = this.node.scene?.getComponentsInChildren(CoverScreen);
+        if (covers)
+            for (const c of covers)
+                c.fit();
+
         // обновляем все Widget после смены разрешения
         this.scheduleOnce(() => {
 
@@ -97,5 +126,15 @@ export class AdaptiveLayout extends Component {
                 w.updateAlignment();
 
         }, 0);
+    }
+
+    private fitToWidth(ui: Node | null, width: number) {
+        if (!ui) return;
+
+        const trans = ui.getComponent(UITransform);
+        if (!trans || trans.width <= 0) return;
+
+        const s = width / trans.width;
+        ui.setScale(s, s, 1);
     }
 }
