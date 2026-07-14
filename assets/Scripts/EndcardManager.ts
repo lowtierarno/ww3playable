@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Camera, UIOpacity, UITransform, Vec3, tween, sys, view } from 'cc';
+import { _decorator, Component, Node, Camera, UIOpacity, UITransform, Vec3, tween, sys, view, Label } from 'cc';
 const { ccclass, property } = _decorator;
 
 @ccclass('EndcardManager')
@@ -22,6 +22,20 @@ export class EndcardManager extends Component {
     @property({ type: Node, tooltip: 'Кликабельная кнопка. Если пусто — кликом служит весь баннер' })
     ctaButton: Node = null;
 
+    // ----- Заголовок исхода -----
+    @property({ type: Label, tooltip: 'Заголовок финала (TOTAL DOMINATION / DON\'T LOSE WORLD WAR 3)' })
+    headlineLabel: Label = null;
+    @property({ tooltip: 'Текст при победе' })
+    winText: string = 'TOTAL DOMINATION';
+    @property({ tooltip: 'Текст при мягком поражении' })
+    loseText: string = "DON'T LOSE WORLD WAR 3";
+    @property({ type: Label, tooltip: 'Надпись на кнопке CTA (необязательно)' })
+    ctaLabel: Label = null;
+    @property({ tooltip: 'Текст CTA при победе' })
+    ctaWinText: string = 'LEAD WORLD WAR 3';
+    @property({ tooltip: 'Текст CTA при поражении' })
+    ctaLoseText: string = 'PLAY NOW';
+
     @property({ tooltip: 'Во сколько раз отдалить (1.3-1.5 = лёгкий зум)' })
     zoomOutFactor: number = 1.4;
     @property({ tooltip: 'Длительность отдаления, сек' })
@@ -39,9 +53,22 @@ export class EndcardManager extends Component {
     private _ctaWired = false;
 
     start() {
-        // Защита от ловушки: если финал уже запущен, НЕ прячем баннер повторно
         if (this._played) return;
         if (this.ctaBanner) this.ctaBanner.active = false;
+    }
+
+    /** Финал: победа */
+    playWin() {
+        if (this.headlineLabel) this.headlineLabel.string = this.winText;
+        if (this.ctaLabel) this.ctaLabel.string = this.ctaWinText;
+        this.play();
+    }
+
+    /** Финал: мягкое поражение (тоже ведёт на PLAY NOW) */
+    playLose() {
+        if (this.headlineLabel) this.headlineLabel.string = this.loseText;
+        if (this.ctaLabel) this.ctaLabel.string = this.ctaLoseText;
+        this.play();
     }
 
     play() {
@@ -87,19 +114,16 @@ export class EndcardManager extends Component {
                     const visible = view.getVisibleSize();
                     const mapW = ui.width * map.worldScale.x;
                     const mapH = ui.height * map.worldScale.y;
-                    // запас покрытия — карта заходит за края с излишком
                     const pad = this.coverPadding > 0 ? this.coverPadding : 1;
                     const minS = startS * Math.max(visible.width / mapW, visible.height / mapH) * pad;
                     if (endS < minS) endS = minS;
                 }
             }
 
-            // центр карты + заданное смещение кадра
             const c = map.worldPosition.clone();
             const wp0 = wr.worldPosition.clone();
             const dx = c.x - wp0.x;
             const dy = c.y - wp0.y;
-
             const off = this.focusOffset;
 
             const d = { k: 0 };
@@ -109,7 +133,6 @@ export class EndcardManager extends Component {
                     onUpdate: () => {
                         const cs = startS + (endS - startS) * d.k;
                         const f = cs / startS;
-                        // смещение кадра тоже въезжает плавно (по k)
                         const ox = off.x * d.k;
                         const oy = off.y * d.k;
                         wr.setScale(cs, cs, 1);
@@ -126,17 +149,14 @@ export class EndcardManager extends Component {
     showCta() {
         const banner = this.ctaBanner || this.ctaButton;
         if (!banner) return;
-
         banner.active = true;
 
-        // вешаем клик здесь (а не в start), чтобы работало при любом расположении компонента
         const click = this.ctaButton || banner;
         if (click && !this._ctaWired) {
             click.on(Node.EventType.TOUCH_END, this.onCtaClick, this);
             this._ctaWired = true;
         }
 
-        // Баннер: только плавное проявление, без пульсации — остаётся статичным
         let op = banner.getComponent(UIOpacity);
         if (!op) op = banner.addComponent(UIOpacity);
         op.opacity = 0;
@@ -146,7 +166,6 @@ export class EndcardManager extends Component {
             .start();
     }
 
-    /** Пульсирует ТОЛЬКО кнопка */
     pulseButton() {
         if (!this.ctaButton) return;
         const base = this.ctaButton.scale.clone();

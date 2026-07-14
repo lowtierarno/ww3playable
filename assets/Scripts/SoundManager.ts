@@ -1,10 +1,9 @@
-import { _decorator, Component, AudioClip, AudioSource, director } from 'cc';
+import { _decorator, Component, AudioClip, AudioSource } from 'cc';
 const { ccclass, property } = _decorator;
 
 /**
  * Простой менеджер звука.
- * Повесь на отдельный узел (например, Canvas или свой узел SoundManager).
- * Другие скрипты вызывают SoundManager.instance.playExplosion() и т.п.
+ * Повесь на отдельный узел. Другие скрипты зовут SoundManager.instance.playX().
  */
 @ccclass('SoundManager')
 export class SoundManager extends Component {
@@ -18,10 +17,22 @@ export class SoundManager extends Component {
     @property({ type: AudioClip, tooltip: 'Звук взрыва' })
     explosion: AudioClip = null;
 
-    @property({ type: AudioClip, tooltip: 'Звук взлёта самолёта' })
+    @property({ type: AudioClip, tooltip: 'Звук взлёта самолёта (✈️)' })
     jetTakeoff: AudioClip = null;
 
-    @property({ type: AudioClip, tooltip: 'Звук повышения мощи армии (тик счётчика)' })
+    @property({ type: AudioClip, tooltip: 'Пуск ракеты (🚀)' })
+    missileLaunch: AudioClip = null;
+
+    @property({ type: AudioClip, tooltip: 'Залп/подход корабля (⚓)' })
+    navy: AudioClip = null;
+
+    @property({ type: AudioClip, tooltip: 'Захват зоны (перекраска в синий)' })
+    capture: AudioClip = null;
+
+    @property({ type: AudioClip, tooltip: 'Начало хода врага (🔴 CHINA moves)' })
+    rivalTurn: AudioClip = null;
+
+    @property({ type: AudioClip, tooltip: 'Тик счётчика армии' })
     powerTick: AudioClip = null;
 
     // ----- Громкость -----
@@ -31,15 +42,11 @@ export class SoundManager extends Component {
     @property({ range: [0, 1], slide: true, tooltip: 'Громкость эффектов' })
     sfxVolume: number = 1.0;
 
-    // отдельный источник для музыки (чтобы эффекты её не перебивали)
     private _bgmSource: AudioSource = null;
-    // источник для одноразовых эффектов
     private _sfxSource: AudioSource = null;
 
     onLoad() {
         SoundManager.instance = this;
-
-        // два независимых AudioSource: один под музыку, второй под эффекты
         this._bgmSource = this.addComponent(AudioSource);
         this._sfxSource = this.addComponent(AudioSource);
     }
@@ -48,7 +55,6 @@ export class SoundManager extends Component {
         this.playBGM();
     }
 
-    /** Запускает фоновую музыку в цикле */
     playBGM() {
         if (!this.bgm || !this._bgmSource) return;
         this._bgmSource.clip = this.bgm;
@@ -61,25 +67,16 @@ export class SoundManager extends Component {
         if (this._bgmSource) this._bgmSource.stop();
     }
 
-    /** Одноразовый звук взрыва */
-    playExplosion() {
-        this.playSfx(this.explosion);
-    }
+    playExplosion() { this.playSfx(this.explosion); }
+    playJetTakeoff() { this.playSfx(this.jetTakeoff); }
+    playMissile() { this.playSfx(this.missileLaunch); }
+    playNavy() { this.playSfx(this.navy); }
+    playCapture() { this.playSfx(this.capture); }
+    playRivalTurn() { this.playSfx(this.rivalTurn); }
+    playPowerTick() { this.playSfx(this.powerTick); }
 
-    /** Звук взлёта самолёта */
-    playJetTakeoff() {
-        this.playSfx(this.jetTakeoff);
-    }
-
-    /** Звук повышения мощи армии */
-    playPowerTick() {
-        this.playSfx(this.powerTick);
-    }
-
-    /** Проигрывает разовый эффект поверх музыки */
     private playSfx(clip: AudioClip) {
         if (!clip || !this._sfxSource) return;
-        // playOneShot позволяет накладывать эффекты друг на друга
         this._sfxSource.playOneShot(clip, this.sfxVolume);
     }
 }

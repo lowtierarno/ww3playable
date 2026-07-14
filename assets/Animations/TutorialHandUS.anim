@@ -80,7 +80,7 @@
         "__type__": "cc.RealKeyframeValue",
         "interpolationMode": 0,
         "tangentWeightMode": 0,
-        "value": 36.595001220703125,
+        "value": -32.072,
         "rightTangent": 0,
         "rightTangentWeight": 1,
         "leftTangent": 0,
@@ -94,7 +94,7 @@
         "__type__": "cc.RealKeyframeValue",
         "interpolationMode": 0,
         "tangentWeightMode": 0,
-        "value": 36.595001220703125,
+        "value": -32.072,
         "rightTangent": 0,
         "rightTangentWeight": 1,
         "leftTangent": 0,
@@ -108,7 +108,7 @@
         "__type__": "cc.RealKeyframeValue",
         "interpolationMode": 0,
         "tangentWeightMode": 0,
-        "value": -7.805,
+        "value": -92.771,
         "rightTangent": 0,
         "rightTangentWeight": 1,
         "leftTangent": 0,
@@ -122,7 +122,7 @@
         "__type__": "cc.RealKeyframeValue",
         "interpolationMode": 0,
         "tangentWeightMode": 0,
-        "value": -7.805,
+        "value": -92.771,
         "rightTangent": 0,
         "rightTangentWeight": 1,
         "leftTangent": 0,
@@ -136,7 +136,7 @@
         "__type__": "cc.RealKeyframeValue",
         "interpolationMode": 0,
         "tangentWeightMode": 0,
-        "value": 36.595001220703125,
+        "value": -32.072,
         "rightTangent": 0,
         "rightTangentWeight": 1,
         "leftTangent": 0,
@@ -170,7 +170,7 @@
         "__type__": "cc.RealKeyframeValue",
         "interpolationMode": 0,
         "tangentWeightMode": 0,
-        "value": -27.490999221801758,
+        "value": -127.107,
         "rightTangent": 0,
         "rightTangentWeight": 1,
         "leftTangent": 0,
@@ -184,7 +184,7 @@
         "__type__": "cc.RealKeyframeValue",
         "interpolationMode": 0,
         "tangentWeightMode": 0,
-        "value": -27.490999221801758,
+        "value": -127.107,
         "rightTangent": 0,
         "rightTangentWeight": 1,
         "leftTangent": 0,
@@ -198,7 +198,7 @@
         "__type__": "cc.RealKeyframeValue",
         "interpolationMode": 0,
         "tangentWeightMode": 0,
-        "value": -334.726,
+        "value": -368.419,
         "rightTangent": 0,
         "rightTangentWeight": 1,
         "leftTangent": 0,
@@ -212,7 +212,7 @@
         "__type__": "cc.RealKeyframeValue",
         "interpolationMode": 0,
         "tangentWeightMode": 0,
-        "value": -334.726,
+        "value": -368.419,
         "rightTangent": 0,
         "rightTangentWeight": 1,
         "leftTangent": 0,
@@ -226,7 +226,7 @@
         "__type__": "cc.RealKeyframeValue",
         "interpolationMode": 0,
         "tangentWeightMode": 0,
-        "value": -27.490999221801758,
+        "value": -127.107,
         "rightTangent": 0,
         "rightTangentWeight": 1,
         "leftTangent": 0,
@@ -340,7 +340,8 @@
     "_times": [
       0,
       0.08333333333333333,
-      0.3
+      0.3,
+      0.38333333333333336
     ],
     "_values": [
       {
@@ -383,6 +384,20 @@
         "easingMethod": 0,
         "__editorExtras__": {
           "broken": null
+        }
+      },
+      {
+        "__type__": "cc.RealKeyframeValue",
+        "interpolationMode": 0,
+        "tangentWeightMode": 0,
+        "value": 0.07800000160932541,
+        "rightTangent": 0,
+        "rightTangentWeight": 1,
+        "leftTangent": 0,
+        "leftTangentWeight": 1,
+        "easingMethod": 0,
+        "__editorExtras__": {
+          "tangentMode": 0
         }
       }
     ],
@@ -400,7 +415,8 @@
     "_times": [
       0,
       0.08333333333333333,
-      0.3
+      0.3,
+      0.38333333333333336
     ],
     "_values": [
       {
@@ -443,6 +459,20 @@
         "easingMethod": 0,
         "__editorExtras__": {
           "broken": null
+        }
+      },
+      {
+        "__type__": "cc.RealKeyframeValue",
+        "interpolationMode": 0,
+        "tangentWeightMode": 0,
+        "value": 0.07800000160932541,
+        "rightTangent": 0,
+        "rightTangentWeight": 1,
+        "leftTangent": 0,
+        "leftTangentWeight": 1,
+        "easingMethod": 0,
+        "__editorExtras__": {
+          "tangentMode": 0
         }
       }
     ],

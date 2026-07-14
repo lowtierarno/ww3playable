@@ -149,7 +149,7 @@
             "_value": false
           },
           "spine": {
-            "_value": true,
+            "_value": false,
             "_option": "spine-3.8"
           },
           "spine-3.8": {
@@ -190,6 +190,7 @@
             "_value": false
           }
         },
+        "flags": {},
         "includeModules": [
           "2d",
           "affine-transform",
@@ -207,7 +208,6 @@
           "physics-2d-box2d",
           "profiler",
           "rich-text",
-          "spine-3.8",
           "tiled-map",
           "tween",
           "ui",
@@ -217,8 +217,7 @@
         "noDeprecatedFeatures": {
           "value": false,
           "version": ""
-        },
-        "flags": {}
+        }
       }
     },
     "globalConfigKey": "defaultConfig"
