@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Enum, Sprite, Color, UIOpacity, tween, Tween } from 'cc';
+import { _decorator, Component, Node, Label, Enum, Sprite, Color, UIOpacity, Vec3, tween, Tween } from 'cc';
 import { Owner, Weapon, CFG } from './GameConfig';
 const { ccclass, property } = _decorator;
 
@@ -84,6 +84,7 @@ export class Zone extends Component {
     owner: Owner = Owner.Neutral;
     shield: number = 0;
     neighbors: Zone[] = []; // резолвится GameManager-ом из neighborNodes
+    private _glowBase: Vec3 | null = null; // базовый масштаб подсветки (без накопления)
 
     /** Стартовый щит по роли (A3). Вызывает GameManager при инициализации. */
     initShield() {
@@ -172,7 +173,45 @@ export class Zone extends Component {
         return (this.unitAnchor || this.node).worldPosition.clone();
     }
 
+    /**
+     * Подсветка «сюда можно ходить»: зелёная обводка зоны пульсирует (как в
+     * прототипе). reachableGlow — узел с зелёным контуром/маской зоны.
+     * Масштаб пульса считается от базового, запомненного один раз.
+     */
     setReachable(on: boolean) {
-        if (this.reachableGlow) this.reachableGlow.active = on;
+        const g = this.reachableGlow;
+        if (!g) return;
+        if (this._glowBase === null) this._glowBase = g.scale.clone();
+        const b = this._glowBase;
+
+        if (on) {
+            if (g.active) return;          // уже подсвечена и пульсирует
+            g.active = true;
+            Tween.stopAllByTarget(g);
+            g.setScale(b);
+            const up = new Vec3(b.x * 1.05, b.y * 1.05, 1);
+            tween(g)
+                .repeatForever(
+                    tween(g)
+                        .to(0.6, { scale: up }, { easing: 'sineInOut' })
+                        .to(0.6, { scale: b }, { easing: 'sineInOut' })
+                )
+                .start();
+        } else {
+            Tween.stopAllByTarget(g);
+            g.setScale(b);
+            g.active = false;
+        }
+    }
+
+    /**
+     * Прячет/показывает «геймплейную» мелочь зоны — щит и иконку структуры.
+     * Цвет территории (оверлей) остаётся, чтобы на экране выбора карта была
+     * раскрашена (превью), но без цифр щитов и построек.
+     */
+    setChromeVisible(on: boolean) {
+        if (this.shieldLabel) this.shieldLabel.node.active = on;
+        if (this.structureIcon) this.structureIcon.active = on && this.weapon !== Weapon.None;
+        if (!on) this.setReachable(false);
     }
 }

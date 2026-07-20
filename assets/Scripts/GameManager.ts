@@ -1,12 +1,16 @@
 import {
     _decorator, Component, Node, Label, Vec3, tween, Tween,
-    UIOpacity, UITransform, Graphics, Color, warn
+    UIOpacity, UITransform, Graphics, Color, Sprite, Enum, Prefab, instantiate, warn
 } from 'cc';
-import { Owner, Weapon, CFG, siegeSeconds } from './GameConfig';
+import { Owner, Weapon, Nation, CFG, siegeSeconds } from './GameConfig';
 import { Zone } from './Zone';
 import { AbilityChip } from './AbilityChip';
 import { SoundManager } from './SoundManager';
 import { EndcardManager } from './EndcardManager';
+import { FloatingText } from './FloatingText';
+import { ZoneSelector } from './ZoneSelector';
+import { TutorialHand } from './TutorialHand';
+import { Fx } from './FX';
 const { ccclass, property } = _decorator;
 
 /**
@@ -30,6 +34,18 @@ export class GameManager extends Component {
     heroTank: Node = null;
     @property({ type: Node, tooltip: 'Красный танк врага (выезжает на его ходу)' })
     enemyTank: Node = null;
+
+    // ---------- Танк: прицеливание / заезд ----------
+    @property({ tooltip: 'Поворачивать танк носом к цели перед выстрелом' })
+    rotateTankToAim: boolean = true;
+    @property({ tooltip: 'Калибровка направления спрайта танка, град. Спрайт носом ВВЕРХ → -90 (герой и враг одинаково)' })
+    tankFacingOffsetDeg: number = -90;
+    @property({ tooltip: 'Время поворота к цели, сек' })
+    aimTurnTime: number = 0.25;
+    @property({ tooltip: 'Калибровка направления спрайта самолёта/ракеты/корабля, град. Нос ВВЕРХ → -90' })
+    weaponFacingOffsetDeg: number = -90;
+    @property({ type: Prefab, tooltip: 'Префаб доп.танка для 🏭 (если пусто — клонируется герой-танк)' })
+    factoryTankPrefab: Prefab = null;
 
     // ---------- Оружие (визуал, опционально) ----------
     @property({ type: Node, tooltip: 'Самолёт для ✈️ (в начале скрыт)' })
@@ -55,6 +71,20 @@ export class GameManager extends Component {
     @property({ type: Label, tooltip: 'Текст тоста' })
     toastLabel: Label = null;
 
+    @property({ type: ZoneSelector, tooltip: 'Кольцо-локатор танка «⚔ N». Держится на герое-танке. Необязательно' })
+    zoneSelector: ZoneSelector = null;
+
+    @property({ type: TutorialHand, tooltip: 'Рука-подсказка. GameManager наводит её на рекомендуемый ход. Необязательно' })
+    tutorialHand: TutorialHand = null;
+
+    // ---------- Выбор страны (старт) ----------
+    @property({ tooltip: 'Начинать с экрана выбора страны (CountrySelect вызовет beginWithNation). Если выкл — игра стартует сразу за defaultYouNation' })
+    startWithCountrySelect: boolean = true;
+    @property({ type: Enum(Nation), tooltip: 'Какой нацией размечена карта как ВАША (синяя) по умолчанию. Обычно США' })
+    defaultYouNation: Nation = Nation.USA;
+    @property({ type: [Node], tooltip: 'Узлы геймплея, скрытые на экране выбора и показанные после выбора (ARMY/RIVAL/баннер/танк и т.п.)' })
+    hideDuringSelect: Node[] = [];
+
     // ---------- Финал ----------
     @property({ type: Node, tooltip: 'Узел с EndcardManager' })
     endcardNode: Node = null;
@@ -64,6 +94,8 @@ export class GameManager extends Component {
     shakeTarget: Node = null;
     @property({ tooltip: 'Радиус нарисованного взрыва' })
     blastRadius: number = 46;
+    @property({ type: Node, tooltip: 'Полноэкранный оверлей для вспышек (Sprite, в начале скрыт). Необязательно' })
+    flashOverlay: Node = null;
 
     // ---------- Состояние ----------
     private army = CFG.START_ARMY;
@@ -73,8 +105,11 @@ export class GameManager extends Component {
     private ended = false;
     private zones: Zone[] = [];
     private heroZone: Zone | null = null;   // где сейчас стоит герой-танк
+    private enemyZone: Zone | null = null;  // где сейчас стоит вражеский танк
     private _shakeOrigin: Vec3 | null = null;
     private _watchdog = false;
+    private _rivalName = 'CHINA';    // имя врага (зависит от выбора страны)
+    private _begun = false;
 
     // =====================================================================
     //  ИНИЦИАЛИЗАЦИЯ
@@ -82,27 +117,115 @@ export class GameManager extends Component {
     start() {
         this.collectZones();
         this.resolveNeighbors();
-        for (const z of this.zones) z.initShield();
-
-        // герой-танк на вашу столицу
-        this.heroZone = this.zones.find(z => z.owner === Owner.You && z.isCapital) || null;
-        if (this.heroTank && this.heroZone) {
-            this.heroTank.setWorldPosition(this.heroZone.firePoint());
-        }
+        for (const z of this.zones) z.initShield();   // превью-раскраска (США синие, Китай красные)
 
         // тап по зонам
         for (const z of this.zones) {
             z.node.on(Node.EventType.TOUCH_END, () => this.onTapZone(z), this);
         }
-
         // способности
         for (const c of this.chips) c.bind((w) => this.fireAbility(w));
-
         if (this.toastNode) this.toastNode.active = false;
 
+        if (this.startWithCountrySelect) {
+            // ждём выбор страны: ВЕСЬ геймплей-UI спрятан, ввод заблокирован,
+            // CountrySelect вызовет beginWithNation() по тапу флага
+            this.busy = true;
+            this.hideGameplayForSelect();
+        } else {
+            this.beginWithNation(this.defaultYouNation);
+        }
+    }
+
+    /** Прячет всю геймплейную мелочь на время экрана выбора страны */
+    private hideGameplayForSelect() {
+        for (const z of this.zones) z.setChromeVisible(false);   // щиты + структуры
+        for (const c of this.chips) if (c && c.node) c.node.active = false;
+        this.setPill(this.armyLabel, false);
+        this.setPill(this.rivalLabel, false);
+        this.setPill(this.objectiveLabel, false);
+        if (this.toastNode) this.toastNode.active = false;
+        if (this.heroTank) this.heroTank.active = false;
+        if (this.enemyTank) this.enemyTank.active = false;
+        for (const n of this.hideDuringSelect) if (n) n.active = false;
+    }
+
+    /** Возвращает геймплей-UI после выбора страны */
+    private showGameplayForBegin() {
+        for (const z of this.zones) z.setChromeVisible(true);    // щиты + структуры
+        this.setPill(this.armyLabel, true);
+        this.setPill(this.rivalLabel, true);
+        this.setPill(this.objectiveLabel, true);
+        for (const n of this.hideDuringSelect) if (n) n.active = true;
+        // чипы включит syncArsenal() по владению; танки — beginWithNation()
+    }
+
+    /** Прячет/показывает плашку-пилюлю (родитель лейбла), не трогая Canvas/корень */
+    private setPill(label: Label | null, on: boolean) {
+        if (!label) return;
+        const p = label.node.parent;
+        if (p && p !== this.node && p.parent) p.active = on;
+        else label.node.active = on;
+    }
+
+    /**
+     * Старт партии за выбранную страну. Карта размечена как игра за
+     * defaultYouNation (синий = You). Если выбрали ДРУГУЮ нацию — меняем
+     * владельцев You<->Enemy местами (столицы/провинции перекрашиваются),
+     * флаги на столицах статичны и остаются за своей нацией.
+     */
+    beginWithNation(picked: Nation) {
+        if (this._begun) return;
+        this._begun = true;
+
+        const flip = picked !== this.defaultYouNation;
+        if (flip) {
+            for (const z of this.zones) {
+                if (z.startOwner === Owner.You) z.startOwner = Owner.Enemy;
+                else if (z.startOwner === Owner.Enemy) z.startOwner = Owner.You;
+            }
+        }
+        for (const z of this.zones) z.initShield();
+
+        this._rivalName = picked === Nation.USA ? 'CHINA' : 'USA';
+
+        // вернуть геймплей-UI (щиты/структуры/пилюли/список)
+        this.showGameplayForBegin();
+
+        // герой-танк на вашу столицу
+        this.heroZone = this.zones.find(z => z.owner === Owner.You && z.isCapital) || null;
+        if (this.heroTank) {
+            this.heroTank.active = true;
+            if (this.heroZone) this.heroTank.setWorldPosition(this.heroZone.firePoint());
+        }
+        // вражеский танк на его столицу
+        const eCap = this.zones.find(z => z.owner === Owner.Enemy && z.isCapital) || null;
+        this.enemyZone = eCap;
+        if (this.enemyTank) {
+            this.enemyTank.active = true;
+            if (eCap) this.enemyTank.setWorldPosition(eCap.firePoint());
+        }
+
+        // начальная поза: оба танка смотрят на столицу врага (через тот же оффсет).
+        // Не зависит от ручных углов в редакторе и корректна даже после флипа.
+        if (this.rotateTankToAim) {
+            if (this.heroTank && eCap) {
+                this.heroTank.angle = this.dirAngle(this.heroTank.worldPosition, eCap.firePoint()) + this.tankFacingOffsetDeg;
+            }
+            if (this.enemyTank && this.heroZone) {
+                this.enemyTank.angle = this.dirAngle(this.enemyTank.worldPosition, this.heroZone.firePoint()) + this.tankFacingOffsetDeg;
+            }
+        }
+
+        // кольцо-локатор прилипает к танку
+        if (this.zoneSelector && this.heroTank) {
+            this.zoneSelector.setFollow(this.heroTank, this.army);
+        }
+
+        this.busy = false;
         this.syncArsenal();
         this.refreshHUD();
-        this.setObjective('CAPTURE, EXPAND, OUT-GUN CHINA');
+        this.setObjective(`Your move — tap a grey zone to expand (then ${this._rivalName} moves)`);
     }
 
     private collectZones() {
@@ -150,11 +273,48 @@ export class GameManager extends Component {
         const startShield = z.shield;
         const dur = siegeSeconds(neu, startShield);
 
-        this.driveHeroTo(z, () => {
+        // 1) повернуться к цели → 2) обстрелять ИЗ СВОЕЙ зоны → 3) захватить → 4) заехать
+        this.aimTankAt(this.heroTank, z, () => {
             this.siegeZone(z, startShield, dur, () => {
                 this.onPlayerCapture(z, neu);
             });
         });
+    }
+
+    /** Поворот танка носом к цели, не сходя с места */
+    private aimTankAt(tank: Node | null, z: Zone, done: () => void) {
+        if (!tank || !this.rotateTankToAim) { done(); return; }
+        const from = tank.worldPosition;
+        const to = z.firePoint();
+        if (Math.hypot(to.x - from.x, to.y - from.y) < 1) { done(); return; }
+
+        const targetAngle = this.dirAngle(from, to) + this.tankFacingOffsetDeg;
+        const cur = tank.angle;
+        const end = cur + this.shortestDelta(cur, targetAngle);
+
+        const guard = { fired: false };
+        const fin = () => { if (guard.fired) return; guard.fired = true; done(); };
+        // числовой прокси — надёжно крутит angle и не конфликтует с твином позиции
+        const data = { a: cur };
+        Tween.stopAllByTarget(data);
+        tween(data)
+            .to(this.aimTurnTime, { a: end }, {
+                easing: 'quadInOut',
+                onUpdate: () => { if (tank.isValid) tank.angle = data.a; },
+            })
+            .call(fin)
+            .start();
+        this.scheduleOnce(fin, this.aimTurnTime + 0.25); // страховка — не виснет
+    }
+
+    /** Угол направления from→to в градусах (CCW от +X) */
+    private dirAngle(from: Vec3, to: Vec3): number {
+        return Math.atan2(to.y - from.y, to.x - from.x) * 180 / Math.PI;
+    }
+
+    /** Кратчайшая разница углов в диапазоне (-180, 180] */
+    private shortestDelta(from: number, to: number): number {
+        return ((to - from) % 360 + 540) % 360 - 180;
     }
 
     /** Можно ли ВАМ взять зону (A4: you→false, neu→true, иначе army≥def) */
@@ -173,15 +333,15 @@ export class GameManager extends Component {
     }
 
     /** Танк подъезжает к зоне */
-    private driveHeroTo(z: Zone, done: () => void) {
-        if (!this.heroTank) { done(); return; }
+    private driveTankTo(tank: Node | null, z: Zone, done: () => void) {
+        if (!tank) { done(); return; }
         const guard = { fired: false };
         const fire = () => { if (guard.fired) return; guard.fired = true; done(); };
 
-        const dist = Vec3.distance(this.heroTank.worldPosition, z.firePoint());
+        const dist = Vec3.distance(tank.worldPosition, z.firePoint());
         const t = Math.max(0.25, Math.min(1.2, dist / 900));
-        Tween.stopAllByTarget(this.heroTank);
-        tween(this.heroTank)
+        Tween.stopAllByTarget(tank);
+        tween(tank)
             .to(t, { worldPosition: z.firePoint() })
             .call(fire)
             .start();
@@ -227,15 +387,21 @@ export class GameManager extends Component {
             return;
         }
 
+        // 3) территория захвачена (перекраска приливом) — танк ещё в своей зоне
         z.setOwner(Owner.You, CFG.OWN_CAPTURED_HP, true);
-        this.heroZone = z;
-        if (this.heroTank) this.heroTank.setWorldPosition(z.firePoint());
+        Fx.capture(this.node, z.firePoint());   // синяя волна захвата
 
-        this.addArmy(wasNeutral ? CFG.GAIN_NEUTRAL : CFG.GAIN_ENEMY);
+        const gain = wasNeutral ? CFG.GAIN_NEUTRAL : CFG.GAIN_ENEMY;
+        this.addArmy(gain);
+        this.floatAt(z.firePoint(), '+' + gain, new Color(120, 220, 140, 255));
         if (SoundManager.instance) SoundManager.instance.playCapture();
         this.syncArsenal();
 
-        this.endPlayerMove();
+        // 4) танк заезжает на захваченную зону и занимает позицию → затем ход врага
+        this.driveTankTo(this.heroTank, z, () => {
+            this.heroZone = z;
+            this.endPlayerMove();
+        });
     }
 
     // =====================================================================
@@ -244,7 +410,8 @@ export class GameManager extends Component {
     private endPlayerMove() {
         this.busy = true;
         this._watchdog = false;
-        this.setObjective('🔴 CHINA is moving...');
+        this.setChipsLocked(true);   // способности недоступны, пока ходит враг (визуально)
+        this.setObjective(`🔴 ${this._rivalName} is moving...`);
         if (SoundManager.instance) SoundManager.instance.playRivalTurn();
 
         this.scheduleOnce(() => this.enemyTurn(() => this.handBack()), CFG.HANDOFF_MS / 1000);
@@ -257,7 +424,8 @@ export class GameManager extends Component {
         this._watchdog = true;
         if (this.ended) return;
         this.busy = false;
-        this.setObjective('YOUR MOVE — take a zone');
+        this.setChipsLocked(false);  // ход снова у игрока → способности активны
+        this.setObjective(`Your move — tap a grey zone (then ${this._rivalName} moves)`);
         this.refreshHUD();
     }
 
@@ -301,6 +469,7 @@ export class GameManager extends Component {
 
             target.shield = Math.max(0, target.shield - dmg);
             target.refreshShield();
+            this.floatAt(target.firePoint(), '-' + dmg, new Color(255, 210, 90, 255));
 
             if (target.isCapital) {
                 if (target.shield <= 0 || this.army >= target.shield) {
@@ -332,6 +501,7 @@ export class GameManager extends Component {
         if (this.warship) {
             this.warship.active = true;
             this.warship.setWorldPosition(from);
+            this.warship.angle = this.dirAngle(from, t.firePoint()) + this.weaponFacingOffsetDeg; // носом по курсу
             tween(this.warship)
                 .to(0.6, { worldPosition: t.firePoint() })
                 .call(() => {
@@ -350,7 +520,7 @@ export class GameManager extends Component {
         }
     }
 
-    /** 🏭 — 2 танка захватывают 2 лучшие пограничные зоны; если некуда → +8 army */
+    /** 🏭 — 2 танка ВЫЕЗЖАЮТ из героя и захватывают 2 лучшие пограничные зоны; если некуда → +8 army */
     private abilityFactory() {
         const picks = this.factoryTargets();
         if (picks.length === 0) {
@@ -358,16 +528,59 @@ export class GameManager extends Component {
             this.refreshHUD();
             return;
         }
+        const origin = this.heroTank ? this.heroTank.worldPosition.clone()
+            : (this.heroZone ? this.heroZone.firePoint() : picks[0].firePoint());
+
         for (let i = 0; i < picks.length; i++) {
             const z = picks[i];
             const neu = z.owner === Owner.Neutral;
-            this.scheduleOnce(() => {
+            this.rollOutTank(origin, z, i * 0.18, () => {
                 this.blast(this.randomPointIn(z));
                 this.shake(9, 0.14);
                 this.seize(z, neu ? CFG.GAIN_NEUTRAL : CFG.GAIN_ENEMY);
                 this.refreshHUD();
-            }, i * 0.25);
+            });
         }
+    }
+
+    /** Визуальный доп-танк: выезжает из героя, едет к зоне, бьёт (onArrive), затем тает */
+    private rollOutTank(fromPos: Vec3, z: Zone, delay: number, onArrive: () => void) {
+        let tank: Node | null = null;
+        if (this.factoryTankPrefab) tank = instantiate(this.factoryTankPrefab);
+        else if (this.heroTank) tank = instantiate(this.heroTank);
+        if (!tank) { this.scheduleOnce(onArrive, delay + 0.3); return; } // без визуала — просто эффект
+
+        const parent = (this.heroTank && this.heroTank.parent) ? this.heroTank.parent : this.node;
+        parent.addChild(tank);
+        tank.active = true;
+        tank.setWorldPosition(fromPos);
+
+        const to = z.firePoint();
+        if (this.rotateTankToAim) tank.angle = this.dirAngle(fromPos, to) + this.tankFacingOffsetDeg;
+
+        // «выезд» из основного танка: поп масштаба
+        const base = tank.scale.clone();
+        tank.setScale(base.x * 0.45, base.y * 0.45, 1);
+        tween(tank).to(0.16, { scale: base }, { easing: 'backOut' }).start();
+
+        const guard = { done: false };
+        const arrive = () => {
+            if (guard.done) return; guard.done = true;
+            onArrive();
+            const t2 = tank!;
+            let op = t2.getComponent(UIOpacity) || t2.addComponent(UIOpacity);
+            tween(op).delay(0.25).to(0.3, { opacity: 0 })
+                .call(() => { if (t2.isValid) t2.destroy(); }).start();
+        };
+
+        const dist = Vec3.distance(fromPos, to);
+        const t = Math.max(0.3, Math.min(1.0, dist / 800));
+        tween(tank)
+            .delay(delay)
+            .to(t, { worldPosition: to }, { easing: 'quadOut' })
+            .call(arrive)
+            .start();
+        this.scheduleOnce(arrive, delay + t + 0.5); // страховка — эффект не потеряется
     }
 
     /** До 2 пограничных зон, которые можно взять: сперва нейтралы, затем слабейшие враги */
@@ -391,6 +604,8 @@ export class GameManager extends Component {
         }
         z.setOwner(Owner.You, CFG.OWN_CAPTURED_HP, true);
         this.addArmy(gain);
+        this.floatAt(z.firePoint(), '+' + gain, new Color(120, 220, 140, 255));
+        Fx.capture(this.node, z.firePoint());   // синяя волна захвата
         if (SoundManager.instance) SoundManager.instance.playCapture();
         this.syncArsenal();
     }
@@ -403,17 +618,24 @@ export class GameManager extends Component {
         if (!fx) { onHit(); return; }
 
         const visible = this.node.getComponent(UITransform);
-        const startY = visible ? visible.height : 1200;
+        const reach = visible ? visible.height : 1200;
         const to = target.firePoint();
-        const from = new Vec3(to.x, to.y + startY * 0.7, to.z);
+        // ракета заходит почти отвесно, самолёт — по диагонали (читаемый пролёт)
+        const side = isMissile ? 0.12 : 0.5;
+        const from = new Vec3(to.x - reach * side, to.y + reach * 0.7, to.z);
 
         fx.active = true;
         fx.setWorldPosition(from);
+        // РАЗВОРОТ носом по направлению полёта (иначе летит «задом»)
+        fx.angle = this.dirAngle(from, to) + this.weaponFacingOffsetDeg;
+
+        const t = 0.55;
+        Tween.stopAllByTarget(fx);
         tween(fx)
-            .to(0.5, { worldPosition: to }, { easing: 'quadIn' })
+            .to(t, { worldPosition: to }, { easing: 'quadIn' })
             .call(() => { fx.active = false; onHit(); })
             .start();
-        this.scheduleOnce(() => { if (fx.active) { fx.active = false; onHit(); } }, 0.9);
+        this.scheduleOnce(() => { if (fx.active) { fx.active = false; onHit(); } }, t + 0.4);
     }
 
     // =====================================================================
@@ -425,29 +647,40 @@ export class GameManager extends Component {
         const { zone, bounce } = pick;
 
         const guard = { ran: false };
-        const drive = () => {
+        const attack = () => {
             if (guard.ran) return;
             guard.ran = true;
+
+            // 2) обстрел цели ИЗ СВОЕЙ зоны (танк на месте)
             for (let i = 0; i < 3; i++)
                 this.scheduleOnce(() => {
                     this.blast(this.randomPointIn(zone));
                     this.shake(8, 0.13);
                     if (SoundManager.instance) SoundManager.instance.playExplosion();
                 }, i * 0.15);
-            this.scheduleOnce(() => { this.enemyResolve(zone, bounce); done(); }, 0.6);
+
+            // 3) резолв (перекраска) → 4) заезд на зону, если враг её взял
+            this.scheduleOnce(() => {
+                this.enemyResolve(zone, bounce);
+                if (this.ended) { done(); return; }
+                if (zone.owner === Owner.Enemy) {
+                    this.driveTankTo(this.enemyTank, zone, () => { this.enemyZone = zone; done(); });
+                } else {
+                    done(); // не взял (HELD) — танк остаётся в своей зоне
+                }
+            }, 0.6);
         };
 
         if (this.enemyTank) {
-            const from = this.enemyLaunchPoint(zone);
+            // старт из своей зоны: текущая enemyZone, иначе ближайшая вражеская к цели
+            const fromZone = (this.enemyZone && this.enemyZone.owner === Owner.Enemy) ? this.enemyZone : null;
             this.enemyTank.active = true;
-            this.enemyTank.setWorldPosition(from);
-            tween(this.enemyTank)
-                .to(0.7, { worldPosition: zone.firePoint() })
-                .call(drive)
-                .start();
-            this.scheduleOnce(drive, 1.1); // fallback — ровно один раз
+            if (!fromZone) this.enemyTank.setWorldPosition(this.enemyLaunchPoint(zone));
+            // 1) поворот к цели, затем атака ИЗ СВОЕЙ зоны
+            this.aimTankAt(this.enemyTank, zone, attack);
+            this.scheduleOnce(attack, this.aimTurnTime + 1.1); // fallback — ровно один раз
         } else {
-            drive();
+            attack();
         }
     }
 
@@ -541,6 +774,7 @@ export class GameManager extends Component {
             } else {
                 t.shield = Math.max(0, t.shield - dmg);
                 t.refreshShield();
+                this.floatAt(t.firePoint(), '-' + dmg, new Color(255, 90, 80, 255));
                 if (t.shield <= 0) {
                     const wasCapital = t.isCapital;
                     t.setOwner(Owner.Enemy, CFG.ENEMY_RETAKEN_DEF, true);
@@ -621,6 +855,34 @@ export class GameManager extends Component {
         for (const c of this.chips) c.setOwned(this.youOwnWeapon(c.weapon));
     }
 
+    /** Затемняет/включает все чипы (на время хода врага) */
+    private setChipsLocked(locked: boolean) {
+        for (const c of this.chips) c.setLocked(locked);
+    }
+
+    /** Всплывающий «+N» / «-N» над точкой карты (GDD §7). Родитель — Canvas (this.node) */
+    private floatAt(worldPos: Vec3, text: string, color: Color) {
+        FloatingText.spawn(this.node, worldPos, text, color);
+    }
+
+    /** Полноэкранная вспышка (GDD §7). Никогда не залипает — гаснет тем же tween-ом */
+    private flash(color: Color, peak = 170, dur = 0.45) {
+        const ov = this.flashOverlay;
+        if (!ov) return;
+        ov.active = true;
+        const sp = ov.getComponent(Sprite);
+        if (sp) sp.color = new Color(color.r, color.g, color.b, 255);
+        let op = ov.getComponent(UIOpacity);
+        if (!op) op = ov.addComponent(UIOpacity);
+        Tween.stopAllByTarget(op);
+        op.opacity = 0;
+        tween(op)
+            .to(dur * 0.35, { opacity: peak })
+            .to(dur * 0.65, { opacity: 0 })
+            .call(() => { ov.active = false; })
+            .start();
+    }
+
     private addArmy(delta: number) {
         const from = this.army;
         this.army += delta;
@@ -630,6 +892,7 @@ export class GameManager extends Component {
             .to(0.5, { a: this.army }, {
                 onUpdate: () => {
                     this.armyLabel.string = String(Math.round(v.a));
+                    if (this.zoneSelector) this.zoneSelector.setArmy(Math.round(v.a));
                     if (SoundManager.instance) SoundManager.instance.playPowerTick();
                 }
             })
@@ -650,9 +913,32 @@ export class GameManager extends Component {
             const ok = !this.busy && !this.ended && this.bordersYou(z) && this.canTake(z);
             z.setReachable(ok);
         }
+        // рука-подсказка наводится на лучший следующий ход (кольцо теперь на танке)
+        if (this.tutorialHand) {
+            const t = (!this.busy && !this.ended) ? this.suggestedTarget() : null;
+            this.tutorialHand.setHint(t ? t.node : null);
+        }
     }
     private clearReachable() {
         for (const z of this.zones) z.setReachable(false);
+        if (this.tutorialHand) this.tutorialHand.setHint(null);
+    }
+
+    /** Лучшая доступная цель для прицела/подсказки (нейтр. оружие → столица по зубам → нейтрал → слабейшая) */
+    private suggestedTarget(): Zone | null {
+        const cand = this.zones.filter(z => this.bordersYou(z) && this.canTake(z));
+        if (!cand.length) return null;
+        const score = (z: Zone) => {
+            if (z.owner === Owner.Neutral && z.weapon !== Weapon.None) return 0;
+            if (z.isCapital && z.owner === Owner.Enemy) return 1;
+            if (z.owner === Owner.Neutral) return 2;
+            return 3;
+        };
+        cand.sort((a, b) => {
+            const s = score(a) - score(b);
+            return s !== 0 ? s : a.shield - b.shield;
+        });
+        return cand[0];
     }
 
     private setObjective(text: string) {
@@ -679,7 +965,9 @@ export class GameManager extends Component {
         this.ended = true;
         this.busy = true;
         this.clearReachable();
+        if (this.zoneSelector) this.zoneSelector.hide();
         this.setObjective('TOTAL DOMINATION');
+        this.flash(new Color(60, 130, 255, 255));
         this.floodBlue();
         const ec: any = this.getEndcard();
         this.scheduleOnce(() => {
@@ -694,7 +982,9 @@ export class GameManager extends Component {
         this.ended = true;
         this.busy = true;
         this.clearReachable();
+        if (this.zoneSelector) this.zoneSelector.hide();
         this.setObjective("DON'T LOSE WORLD WAR 3");
+        this.flash(new Color(228, 62, 58, 255));
         const ec: any = this.getEndcard();
         this.scheduleOnce(() => {
             if (!ec) return;
@@ -746,22 +1036,8 @@ export class GameManager extends Component {
     }
 
     private blast(worldPos: Vec3) {
-        const parent = this.node;
-        const n = new Node('Blast');
-        parent.addChild(n);
-        n.setWorldPosition(worldPos);
-
-        const g = n.addComponent(Graphics);
-        const op = n.addComponent(UIOpacity);
-        const r = this.blastRadius;
-        g.fillColor = new Color(255, 150, 40, 255);
-        g.circle(0, 0, r); g.fill();
-        g.fillColor = new Color(255, 240, 180, 255);
-        g.circle(0, 0, r * 0.5); g.fill();
-
-        n.setScale(0.2, 0.2, 1);
-        tween(n).to(0.22, { scale: new Vec3(1.25, 1.25, 1) }, { easing: 'quadOut' }).start();
-        tween(op).delay(0.1).to(0.3, { opacity: 0 }).call(() => n.destroy()).start();
+        // многослойный взрыв (ударная волна + огонь + вспышка + искры + дым)
+        Fx.explosion(this.node, worldPos, this.blastRadius);
     }
 
     private shake(intensity: number, duration: number) {

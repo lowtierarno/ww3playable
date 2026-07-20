@@ -11,6 +11,13 @@ export enum Owner {
     Enemy = 2,   // враг (красное)
 }
 
+/** Сверхдержава (для экрана выбора в начале) */
+export enum Nation {
+    None = 0,
+    USA = 1,   // 🇺🇸
+    China = 2, // 🇨🇳
+}
+
 /** Тип оружейной зоны (постоянная структура на зоне) */
 export enum Weapon {
     None = 0,

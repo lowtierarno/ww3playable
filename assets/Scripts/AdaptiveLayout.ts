@@ -47,7 +47,16 @@ export class AdaptiveLayout extends Component {
     @property
     landscapeHeight = 720;
 
+    // базовая ширина панелей, запомненная ОДИН раз — масштаб всегда считается
+    // от неё, поэтому при повторных поворотах ничего не накапливается
+    private _baseW: Map<Node, number> = new Map();
+
     onLoad() {
+
+        // запоминаем исходную ширину HUD-панелей до любых масштабирований
+        this.captureBase(this.portraitTop);
+        this.captureBase(this.portraitBottom);
+        this.captureBase(this.landscapeUI);
 
         this.apply();
 
@@ -128,13 +137,26 @@ export class AdaptiveLayout extends Component {
         }, 0);
     }
 
+    private captureBase(ui: Node | null) {
+        if (!ui) return;
+        const t = ui.getComponent(UITransform);
+        if (t && t.width > 0) this._baseW.set(ui, t.width);
+    }
+
     private fitToWidth(ui: Node | null, width: number) {
         if (!ui) return;
 
-        const trans = ui.getComponent(UITransform);
-        if (!trans || trans.width <= 0) return;
+        // ширина берётся ТОЛЬКО из запомненной базы (не из живого trans.width),
+        // иначе масштаб накапливается при каждом повороте
+        let base = this._baseW.get(ui);
+        if (base === undefined || base <= 0) {
+            const t = ui.getComponent(UITransform);
+            if (!t || t.width <= 0) return;
+            base = t.width;
+            this._baseW.set(ui, base);
+        }
 
-        const s = width / trans.width;
+        const s = width / base;
         ui.setScale(s, s, 1);
     }
 }

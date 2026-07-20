@@ -28,15 +28,22 @@ export class AbilityChip extends Component {
     @property({ tooltip: 'Перезарядка, мс (по умолчанию из GameConfig)' })
     rechargeMs: number = CFG.RECHARGE_MS;
 
+    @property({ tooltip: 'Прозрачность серого/неактивного чипа (нет владения зоной)' })
+    inactiveOpacity: number = 90;
+    @property({ tooltip: 'Прозрачность затемнённого чипа на ходу врага' })
+    lockedOpacity: number = 130;
+
     private _owned = false;
     private _ready = true;
     private _locked = false;
+    private _blinking = false;
     private _base: Vec3 = new Vec3(1, 1, 1);
     private _fireCb: ((w: Weapon) => void) | null = null;
 
     onLoad() {
         this._base = this.node.scale.clone();
         this.node.on(Node.EventType.TOUCH_END, this.onTap, this);
+        this.updateVisual();   // стартовый вид — серый/неактивный
     }
 
     /** GameManager передаёт колбэк «выстрелить» */
@@ -44,27 +51,42 @@ export class AbilityChip extends Component {
         this._fireCb = cb;
     }
 
-    /** Владеем ли мы зоной этой способности (управляет видимостью чипа) */
+    /**
+     * Владеем ли мы зоной этой способности.
+     * Чип виден ВСЕГДА и стоит на месте: без владения — серый/неактивный,
+     * с владением — активный и моргает (готов к применению).
+     */
     setOwned(owned: boolean) {
-        if (this._owned === owned) return;
+        const changed = this._owned !== owned;
         this._owned = owned;
-        this.node.active = owned;
+        this.node.active = true;        // чип всегда на своём месте (не прыгает)
         if (owned) {
-            this._ready = true;
-            this.setFill(0);      // готов → перекрытие ПУСТОЕ (никакого висящего блока)
-            this.startBlink();
+            if (changed) { this._ready = true; this.setFill(0); }
+            this.updateVisual();
+            if (this._ready && !this._locked) this.startBlink();
         } else {
-            Tween.stopAllByTarget(this.node);
+            this.stopBlink();
             this.node.setScale(this._base);
+            this.setFill(0);
+            this.updateVisual();
         }
     }
 
-    /** Блокировка на время хода врага / чужой осады (способности недоступны) */
+    /** Блокировка на время хода врага (способности недоступны — просто темнее) */
     setLocked(locked: boolean) {
         this._locked = locked;
+        this.updateVisual();
+        if (locked) this.stopBlink();
+        else if (this._owned && this._ready) this.startBlink();
+    }
+
+    /** Прозрачность по состоянию: серый (нет зоны) / темнее (ход врага) / активный */
+    private updateVisual() {
         let op = this.node.getComponent(UIOpacity);
         if (!op) op = this.node.addComponent(UIOpacity);
-        op.opacity = locked ? 110 : 255; // затемняем, чтобы было видно, что нельзя
+        if (!this._owned) op.opacity = this.inactiveOpacity;
+        else if (this._locked) op.opacity = this.lockedOpacity;
+        else op.opacity = 255;
     }
 
     isReady(): boolean {
@@ -104,6 +126,8 @@ export class AbilityChip extends Component {
 
     // ---------- Blink готовности ----------
     private startBlink() {
+        if (this._blinking) return;   // уже моргает — не перезапускаем
+        this._blinking = true;
         const target = this.readyGlow || this.node;
         let op = target.getComponent(UIOpacity);
         if (!op && target === this.readyGlow) op = target.addComponent(UIOpacity);
@@ -131,6 +155,7 @@ export class AbilityChip extends Component {
     }
 
     private stopBlink() {
+        this._blinking = false;
         if (this.readyGlow) {
             Tween.stopAllByTarget(this.readyGlow.getComponent(UIOpacity) as any);
             this.readyGlow.active = false;
